@@ -1,0 +1,5 @@
+project: creditcard
+registry: registry.db
+provider: local
+offline_store:
+  type: file

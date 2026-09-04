@@ -14,6 +14,10 @@ spec:
     metadata:
       labels:
         app: ml-app
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: ml-app
       imagePullSecrets:
@@ -24,6 +28,9 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: 8000
+          env:
+            - name: SHADOW_URL
+              value: "__SHADOW_URL__"
           resources:
             requests:
               cpu: "200m"

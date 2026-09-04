@@ -1,13 +1,23 @@
-import joblib
 import os
+import logging
+import httpx
 import pandas as pd
-from fastapi import FastAPI
+from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel
-
-app = FastAPI()
+from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Counter, Histogram
 
 MODEL_PATH = os.getenv("MODEL_PATH", "./model.pkl")
-model = joblib.load(MODEL_PATH)
+
+app = FastAPI(title="CreditCard Fraud API")
+
+instrumentator = Instrumentator(
+    excluded_handlers=["/metrics"]
+)
+instrumentator.instrument(app).expose(app)
+
+SHADOW_URL = os.getenv("SHADOW_URL", None)
+logger = logging.getLogger("ml-api")
 
 class InputData(BaseModel):
     V1: float
@@ -54,8 +64,23 @@ def version():
     return {"model_type": type(model).__name__, "is_pipeline": True}
 
 @app.post('/predict', response_model=Prediction)
-def predict(form: InputData):
+async def predict(form: InputData, background_tasks: BackgroundTasks):
     df = pd.DataFrame.from_dict([form.dict()])
     y_proba = model.predict_proba(df)[0][1]
     y_pred = int(model.predict(df)[0])
+
+    if SHADOW_URL:
+        background_tasks.add_task(mirror_to_shadow, form.dict())
+
     return {"pred": y_pred, "prob": float(y_proba)}
+
+async def mirror_to_shadow(payload: dict):
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                f"{SHADOW_URL}/predict",
+                json=payload,
+                timeout=1.0
+            )
+    except Exception as e:
+        logger.warning(f"Shadow request failed: {e}")

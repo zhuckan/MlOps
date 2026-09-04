@@ -1,0 +1,23 @@
+FROM python:3.9-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir \
+    pandas \
+    scikit-learn \
+    xgboost \
+    mlflow \
+    joblib \
+    feast \
+    pyarrow \
+    minio \
+    scipy
+
+COPY feature_repo /app/feature_repo
+COPY retrain.py /app/retrain.py
+
+# Если registry.db ещё не сгенерирован, можно выполнить feast apply при старте
+# Но лучше сгенерировать заранее и положить в feature_repo
+# RUN cd /app/feature_repo && feast apply
+
+ENTRYPOINT ["python", "retrain.py"]

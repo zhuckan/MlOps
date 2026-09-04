@@ -1,11 +1,16 @@
 stages:
   - test
   - build
-  - deploy
+  - build_shadow
+  - deploy_shadow
+  - deploy_prod
+  - verify_and_rollback
 
 variables:
   IMAGE_TAG: "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+  SHADOW_IMAGE_TAG: "$CI_REGISTRY_IMAGE:shadow-$CI_COMMIT_SHORT_SHA"
   KUBE_NAMESPACE: "ml-service"
+  MLFLOW_TRACKING_URI: "http://host.docker.internal:5001"
 
 test:
   stage: test
@@ -29,13 +34,54 @@ build:
   only:
     - main
 
-deploy:
-  stage: deploy
-  image:
-    name: bitnami/kubectl:latest
-    entrypoint: [""]
+build_shadow:
+  stage: build_shadow
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - apk add --no-cache python3 py3-pip
+    - pip3 install mlflow pandas scikit-learn xgboost joblib
+    - python3 download_model_for_shadow.py
   script:
-    - sh ./deploy.sh
+    - docker build -t $SHADOW_IMAGE_TAG -t $CI_REGISTRY_IMAGE:prod-candidate .
+    - docker push $SHADOW_IMAGE_TAG
+    - docker push $CI_REGISTRY_IMAGE:prod-candidate
   only:
-    - main
-  when: manual
+    variables:
+      - $SHADOW_DEPLOY == "true"
+
+deploy_shadow:
+  stage: deploy_shadow
+  image: bitnami/kubectl:latest
+  script:
+    - sed "s|__CI_REGISTRY_IMAGE__|$CI_REGISTRY_IMAGE|g; s|__CI_COMMIT_SHORT_SHA__|$CI_COMMIT_SHORT_SHA|g" manifests/shadow-deployment.yaml | kubectl --kubeconfig "$KUBECONFIG" apply -f -
+    - export SHADOW_URL="http://ml-app-shadow:8000"
+    - sed "s|__CI_REGISTRY_IMAGE__|$CI_REGISTRY_IMAGE|g; s|__CI_COMMIT_SHORT_SHA__|$CI_COMMIT_SHORT_SHA|g; s|__SHADOW_URL__|$SHADOW_URL|g" manifests/deployment.yaml | kubectl --kubeconfig "$KUBECONFIG" apply -f -
+  only:
+    variables:
+      - $SHADOW_DEPLOY == "true"
+
+deploy_prod:
+  stage: deploy_prod
+  image: bitnami/kubectl:latest
+  script:
+    - export PROD_IMAGE="$CI_REGISTRY_IMAGE:prod-candidate"
+    - sed "s|__CI_REGISTRY_IMAGE__|$CI_REGISTRY_IMAGE|g; s|__CI_COMMIT_SHORT_SHA__|$CI_COMMIT_SHORT_SHA|g; s|__SHADOW_URL__||g" manifests/deployment.yaml | kubectl --kubeconfig "$KUBECONFIG" apply -f -
+    - kubectl --kubeconfig "$KUBECONFIG" delete deployment ml-app-shadow -n $KUBE_NAMESPACE || true
+  only:
+    variables:
+      - $PROD_DEPLOY == "true"
+
+verify_and_rollback:
+  stage: verify_and_rollback
+  image: bitnami/kubectl:latest
+  script:
+    - sleep 60
+    - echo "Verification placeholder. Add Prometheus checks here."
+    # Пример rollback при плохих метриках:
+    # - kubectl --kubeconfig "$KUBECONFIG" rollout undo deployment/ml-app -n $KUBE_NAMESPACE
+  only:
+    variables:
+      - $PROD_DEPLOY == "true"
+  when: on_success
