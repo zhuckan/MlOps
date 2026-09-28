@@ -1,9 +1,16 @@
 fastapi
 uvicorn
 pandas
+numpy
+pyarrow
 scikit-learn
 xgboost
 mlflow
 joblib
+minio
+feast
+scipy
+requests
 prometheus-fastapi-instrumentator
+prometheus_client
 httpx

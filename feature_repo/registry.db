@@ -1,16 +1,16 @@
 
-?
+L
+,
+transaction_id"transaction_idJ
+creditcard
+Õ ÊÕ˜ãğ­Õ ÊÕ˜ãğ­
+A
 !
 __dummy"
 __dummy_idJ
-creditcard
-„±Ô¨—¾6„±Ô¨—¾6
-J
-,
-transaction_id"transaction_idJ
-creditcard
-„±ÔàŸÃ6„±ÔàŸÃ61"$d65b8b47-2ea2-4a11-971c-75e2c8deb3e2*„±ÔÈ¸ç62€
-á
+creditcard
+Õ ÊÕğô­Õ ÊÕğô­1"$d43e031e-0dbd-4709-b604-d601951d4bb5*ô ÊÕğ¢&2ª
+‰
 creditcard_features
 creditcardtransaction_id"
 V1"
@@ -43,15 +43,26 @@ creditcardtransaction_id"
 V28"
 
 Amount"
-Hour"	
-Class2€ç„:}event_timestamp*createdZdata/features.parquetŠ1feast.infra.offline_stores.file_source.FileSource¢creditcard_source@b
-transaction_id
-„±ÔØéÇ6„±ÔØéÇ6R‰
-†
-,feast.infra.online_stores.sqlite.SqliteTable"V
-4/Users/sophie/Team.Inno3/feature_repo/data/online.dbcreditcard_creditcard_featuresbŠevent_timestamp*createdZdata/features.parquetŠ1feast.infra.offline_stores.file_source.FileSource¢creditcard_sourceª
-creditcardŠ*
+Hour2€ç„:¯event_timestamp*createdZ@>/Users/sophie/Team.Inno3_v2/feature_repo/data/features.parquetŠ1feast.infra.offline_stores.file_source.FileSource¢creditcard_features_source@b
+transaction_id
+Õ ÊÕÈ¾÷­Õ ÊÕÈ¾÷­2ª
+‰
+creditcard_targets
+creditcardtransaction_id"	
+Class2€ç„:®target_timestamp*createdZ?=/Users/sophie/Team.Inno3_v2/feature_repo/data/targets.parquetŠ1feast.infra.offline_stores.file_source.FileSource¢creditcard_targets_source@b
+transaction_id
+Õ ÊÕĞ¸†®Õ ÊÕĞ¸†®R—
+‰
+,feast.infra.online_stores.sqlite.SqliteTable"Y
+7/Users/sophie/Team.Inno3_v2/feature_repo/data/online.dbcreditcard_creditcard_features
+ˆ
+,feast.infra.online_stores.sqlite.SqliteTable"X
+7/Users/sophie/Team.Inno3_v2/feature_repo/data/online.dbcreditcard_creditcard_targetsb¼event_timestamp*createdZ@>/Users/sophie/Team.Inno3_v2/feature_repo/data/features.parquetŠ1feast.infra.offline_stores.file_source.FileSource¢creditcard_features_sourceª
+creditcardb»target_timestamp*createdZ?=/Users/sophie/Team.Inno3_v2/feature_repo/data/targets.parquetŠ1feast.infra.offline_stores.file_source.FileSource¢creditcard_targets_sourceª
+creditcardz2
+
+creditcard$e9a0fca7-b749-4622-9ad7-93ddf0bba86aŠ,
 
 
-creditcard
-„±Ôˆş„±Ôˆş
+creditcard
+Õ ÊÕ€Ôì£Õ ÊÕ€Ôì£

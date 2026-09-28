@@ -1,0 +1,9 @@
+pandas
+numpy
+pyarrow
+scikit-learn
+xgboost
+mlflow
+joblib
+feast
+scipy

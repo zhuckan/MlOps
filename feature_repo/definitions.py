@@ -1,17 +1,28 @@
+import os
 from datetime import timedelta
 from feast import Entity, FeatureView, Field, FileSource
 from feast.types import Float32, Int64
 
+
+REPO_DIR = os.path.dirname(os.path.abspath(__file__))
+
 transaction = Entity(name="transaction_id", join_keys=["transaction_id"])
 
-source = FileSource(
-    name="creditcard_source",
-    path="data/features.parquet",
+features_source = FileSource(
+    name="creditcard_features_source",
+    path=os.path.join(REPO_DIR, "data", "features.parquet"),
     timestamp_field="event_timestamp",
     created_timestamp_column="created",
 )
 
-feature_view = FeatureView(
+targets_source = FileSource(
+    name="creditcard_targets_source",
+    path=os.path.join(REPO_DIR, "data", "targets.parquet"),
+    timestamp_field="target_timestamp",
+    created_timestamp_column="created",
+)
+
+creditcard_features = FeatureView(
     name="creditcard_features",
     entities=[transaction],
     ttl=timedelta(days=365),
@@ -46,7 +57,16 @@ feature_view = FeatureView(
         Field(name="V28", dtype=Float32),
         Field(name="Amount", dtype=Float32),
         Field(name="Hour", dtype=Int64),
+    ],
+    source=features_source,
+)
+
+creditcard_targets = FeatureView(
+    name="creditcard_targets",
+    entities=[transaction],
+    ttl=timedelta(days=365),
+    schema=[
         Field(name="Class", dtype=Int64),
     ],
-    source=source,
+    source=targets_source,
 )

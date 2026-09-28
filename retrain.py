@@ -1,8 +1,10 @@
 import os
+import json
+
 import pandas as pd
 import mlflow
 import mlflow.sklearn
-from sklearn.model_selection import train_test_split
+import mlflow.artifacts
 from sklearn.metrics import roc_auc_score, average_precision_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -10,81 +12,201 @@ from sklearn.compose import ColumnTransformer
 from xgboost import XGBClassifier
 from feast import FeatureStore
 
-MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", "http://host.docker.internal:5001")
+
+MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
 FEAST_REPO_PATH = os.getenv("FEAST_REPO_PATH", "/app/feature_repo")
+HOLDOUT_FRACTION = 0.2
+EXPERIMENT_NAME = "Creditcard_Model_Tuning_v2"
+HOLDOUT_VERSION = "frozen_holdout_v1"
+HOLDOUT_TAG_KEY = "frozen_holdout_version"
 
-def main():
-    # 1. Инициализация Feast store
-    store = FeatureStore(repo_path=FEAST_REPO_PATH)
 
-    # 2. Загрузка entity dataframe (все транзакции из parquet)
-    df_raw = pd.read_parquet(os.path.join(FEAST_REPO_PATH, "data", "features.parquet"))
-    entity_df = df_raw[["transaction_id", "event_timestamp"]].copy()
+def load_frozen_holdout():
+    client = mlflow.tracking.MlflowClient()
+    experiment = mlflow.get_experiment_by_name(EXPERIMENT_NAME)
+    if experiment is None:
+        print("[holdout] Experiment not found → no frozen holdout yet")
+        return None, None
 
-    # 3. Получение исторических фич с point-in-time join
-    # Убедитесь, что FeatureView называется 'creditcard_features'
-    feature_view = store.get_feature_view("creditcard_features")
-    feature_refs = [f"{feature_view.name}:{f.name}" for f in feature_view.features]
-    training_df = store.get_historical_features(
-        entity_df=entity_df,
-        features=feature_refs
-    ).to_df()
+    runs = client.search_runs(
+        experiment_ids=[experiment.experiment_id],
+        filter_string=f"tags.{HOLDOUT_TAG_KEY} = '{HOLDOUT_VERSION}'",
+        max_results=1,
+    )
+    if not runs:
+        print(f"[holdout] No run with tag {HOLDOUT_TAG_KEY}={HOLDOUT_VERSION}")
+        return None, None
 
-    # 4. Удаляем служебные колонки
-    training_df = training_df.drop(columns=["transaction_id", "event_timestamp", "created"], errors="ignore")
+    holdout_run_id = runs[0].info.run_id
+    print(f"[holdout] Found frozen holdout in run {holdout_run_id}")
 
-    # 5. Разделяем на признаки и целевую переменную
-    X = training_df.drop("Class", axis=1)
-    y = training_df["Class"]
-
-    # 6. Train/test split
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
+    holdout_path = mlflow.artifacts.download_artifacts(
+        run_id=holdout_run_id, artifact_path="holdout.parquet"
+    )
+    meta_path = mlflow.artifacts.download_artifacts(
+        run_id=holdout_run_id, artifact_path="holdout_meta.json"
     )
 
-    # 7. Препроцессинг (стандартизация Amount и Hour)
-    preprocessor = ColumnTransformer([
-        ('num', StandardScaler(), ['Amount', 'Hour'])
-    ], remainder='passthrough')
+    holdout_df = pd.read_parquet(holdout_path)
+    with open(meta_path) as f:
+        meta = json.load(f)
+    cutoff = pd.Timestamp(meta["cutoff"])
 
-    # 8. Полный пайплайн (препроцессор + модель)
-    pipeline = Pipeline([
+    print(f"[holdout] Loaded: {len(holdout_df)} rows, cutoff={cutoff}")
+    return holdout_df, cutoff
+
+
+def save_frozen_holdout(holdout_df, cutoff, parent_run_id):
+    client = mlflow.tracking.MlflowClient()
+    holdout_path = "/tmp/holdout.parquet"
+    meta_path = "/tmp/holdout_meta.json"
+
+    holdout_df.to_parquet(holdout_path, index=False)
+    meta = {
+        "cutoff": str(cutoff),
+        "created_at": str(pd.Timestamp.utcnow()),
+        "rows": len(holdout_df),
+        "version": HOLDOUT_VERSION,
+        "holdout_fraction": HOLDOUT_FRACTION,
+    }
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
+
+    client.log_artifact(parent_run_id, holdout_path, artifact_path="")
+    client.log_artifact(parent_run_id, meta_path, artifact_path="")
+    client.set_tag(parent_run_id, HOLDOUT_TAG_KEY, HOLDOUT_VERSION)
+    print(f"[holdout] Saved to MLflow run {parent_run_id}: {len(holdout_df)} rows, cutoff={cutoff}")
+
+
+def load_features_and_targets(store):
+    df_features_raw = pd.read_parquet(
+        os.path.join(FEAST_REPO_PATH, "data", "features.parquet")
+    )
+    entity_df_features = df_features_raw[["transaction_id", "event_timestamp"]].copy()
+
+    fv_features = store.get_feature_view("creditcard_features")
+    features_refs = [f"{fv_features.name}:{f.name}" for f in fv_features.features]
+    features_df = store.get_historical_features(
+        entity_df=entity_df_features,
+        features=features_refs,
+    ).to_df()
+
+    df_targets_raw = pd.read_parquet(
+        os.path.join(FEAST_REPO_PATH, "data", "targets.parquet")
+    )
+    entity_df_targets = df_targets_raw[["transaction_id", "target_timestamp"]].copy()
+
+    fv_targets = store.get_feature_view("creditcard_targets")
+    targets_refs = [f"{fv_targets.name}:{f.name}" for f in fv_targets.features]
+    targets_df = store.get_historical_features(
+        entity_df=entity_df_targets,
+        features=targets_refs,
+    ).to_df()
+
+    return features_df.merge(
+        targets_df[["transaction_id", "Class"]],
+        on="transaction_id",
+        how="inner",
+    )
+
+
+def build_pipeline():
+    preprocessor = ColumnTransformer(
+        [('num', StandardScaler(), ['Amount', 'Hour'])],
+        remainder='passthrough',
+    )
+    return Pipeline([
         ('prep', preprocessor),
-        ('clf', XGBClassifier(random_state=42, eval_metric='logloss'))
+        ('clf', XGBClassifier(random_state=42, eval_metric='logloss')),
     ])
-    pipeline.fit(X_train, y_train)
 
-    # 9. Оценка качества
-    y_pred_proba = pipeline.predict_proba(X_test)[:, 1]
-    roc_auc = roc_auc_score(y_test, y_pred_proba)
-    pr_auc = average_precision_score(y_test, y_pred_proba)
+def main():
+    store = FeatureStore(repo_path=FEAST_REPO_PATH)
+    df = load_features_and_targets(store)
+    df = df.sort_values("event_timestamp").reset_index(drop=True)
 
-    # 10. Логирование в MLflow
+    print(f"[data] Total rows: {len(df)}, "
+          f"{df['event_timestamp'].min()} → {df['event_timestamp'].max()}")
+
     mlflow.set_tracking_uri(MLFLOW_URI)
-    mlflow.set_experiment("Creditcard_Model_Tuning_v2")
+    mlflow.set_experiment(EXPERIMENT_NAME)
+
+    holdout_df, cutoff = load_frozen_holdout()
 
     with mlflow.start_run(run_name="Challenger") as run:
-        mlflow.log_metrics({"test_roc_auc": roc_auc, "test_auprc": pr_auc})
+        run_id = run.info.run_id
 
-        # Логируем весь pipeline (важно для последующего использования в API)
+        if holdout_df is None:
+            split_idx = int(len(df) * (1 - HOLDOUT_FRACTION))
+            cutoff = df.iloc[split_idx]["event_timestamp"]
+            holdout_df = df.iloc[split_idx:].copy()
+            train_df = df.iloc[:split_idx].copy()
+            save_frozen_holdout(holdout_df, cutoff, run_id)
+        else:
+            train_df = df[df["event_timestamp"] < cutoff].copy()
+
+        # Defensive checks
+        if len(train_df) == 0 or len(holdout_df) == 0:
+            raise ValueError(
+                f"Empty split: train={len(train_df)}, holdout={len(holdout_df)}"
+            )
+        if train_df["Class"].nunique() < 2:
+            raise ValueError(f"Train has only one class: {train_df['Class'].unique()}")
+
+        print(f"[split] Train:   {len(train_df)} rows "
+              f"({train_df['event_timestamp'].min()} → {train_df['event_timestamp'].max()})")
+        print(f"[split] Holdout: {len(holdout_df)} rows "
+              f"({holdout_df['event_timestamp'].min()} → {holdout_df['event_timestamp'].max()})")
+
+        feature_cols = [
+            c for c in df.columns
+            if c not in ["transaction_id", "event_timestamp", "created", "Class"]
+        ]
+        X_train = train_df[feature_cols]
+        y_train = train_df["Class"]
+        X_holdout = holdout_df[feature_cols]
+        y_holdout = holdout_df["Class"]
+
+        pipeline = build_pipeline()
+        pipeline.fit(X_train, y_train)
+
+        y_pred_proba = pipeline.predict_proba(X_holdout)[:, 1]
+        roc_auc = roc_auc_score(y_holdout, y_pred_proba)
+        pr_auc = average_precision_score(y_holdout, y_pred_proba)
+
+        mlflow.log_param("holdout_fraction", HOLDOUT_FRACTION)
+        mlflow.log_param("train_rows", len(train_df))
+        mlflow.log_param("holdout_rows", len(holdout_df))
+        mlflow.log_param("holdout_cutoff", str(cutoff))
+        mlflow.log_metric("test_roc_auc", roc_auc)
+        mlflow.log_metric("test_auprc", pr_auc)
+        mlflow.set_tag("dataset_version", HOLDOUT_VERSION)
+        mlflow.set_tag("holdout_cutoff", str(cutoff))
         mlflow.sklearn.log_model(pipeline, "model")
 
-        # Сравнение с текущим чемпионом (Production)
         champion_runs = mlflow.search_runs(
+            experiment_ids=[run.info.experiment_id],
             filter_string="tags.model_status = 'Production'",
-            order_by=["metrics.test_auprc DESC"]
+            order_by=["metrics.test_auprc DESC"],
         )
-        if not champion_runs.empty:
-            champion_auprc = champion_runs.iloc[0]["metrics.test_auprc"]
+
+        if champion_runs.empty:
+            mlflow.set_tag("model_status", "Ready_for_staging")
+            print("[compare] No champion → Ready_for_staging")
+        else:
+            champion_run_id = champion_runs.iloc[0]["run_id"]
+            print(f"[compare] Champion run_id = {champion_run_id}")
+            champion_model = mlflow.sklearn.load_model(f"runs:/{champion_run_id}/model")
+            champ_pred_proba = champion_model.predict_proba(X_holdout)[:, 1]
+            champion_auprc = average_precision_score(y_holdout, champ_pred_proba)
+            print(f"[compare] Challenger AUPRC = {pr_auc:.4f}, "
+                  f"Champion AUPRC (on same holdout) = {champion_auprc:.4f}")
+            mlflow.log_metric("champion_auprc_on_same_holdout", champion_auprc)
             if pr_auc > champion_auprc + 0.01:
                 mlflow.set_tag("model_status", "Ready_for_staging")
-                print(f"Challenger better: {pr_auc:.4f} > {champion_auprc:.4f}")
             else:
                 mlflow.set_tag("model_status", "Rejected")
-                print("Challenger not better")
-        else:
-            mlflow.set_tag("model_status", "Ready_for_staging")
-            print("No champion, set Ready_for_staging")
+
 
 if __name__ == "__main__":
     main()

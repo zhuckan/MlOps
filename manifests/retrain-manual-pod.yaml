@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: retrain-manual
+  namespace: ml-service
+spec:
+  restartPolicy: Never
+  containers:
+  - name: retrain
+    image: retrain-job:v7
+    imagePullPolicy: Never
+    command: ["python", "retrain.py"]
+    env:
+    - name: MLFLOW_TRACKING_URI
+      value: "http://host.minikube.internal:5001"
+    - name: FEAST_REPO_PATH
+      value: "/app/feature_repo"
+    - name: MLFLOW_ALLOW_FILE_STORE
+      value: "true"
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "3Gi"
+        cpu: "2"

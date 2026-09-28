@@ -25,6 +25,9 @@ services:
       KUBECONFIG: /Users/sophie/.kube/config
       TELEGRAM_BOT_TOKEN: "8903354508:AAF_On6mhmOfGzuz1KW_KFT1rfH3m9zLNNg"
       TELEGRAM_CHAT_ID: "750795068"
+      GITLAB_URL: "http://host.docker.internal:8088"
+      GITLAB_PROJECT_ID: "1"
+      GITLAB_TRIGGER_TOKEN: ""
     volumes:
       - airflow_data:/opt/airflow
       - ./dags:/opt/airflow/dags
@@ -59,6 +62,9 @@ services:
       KUBECONFIG: /Users/sophie/.kube/config
       TELEGRAM_BOT_TOKEN: "8903354508:AAF_On6mhmOfGzuz1KW_KFT1rfH3m9zLNNg"
       TELEGRAM_CHAT_ID: "750795068"
+      GITLAB_URL: "http://host.docker.internal:8088"
+      GITLAB_PROJECT_ID: "1"
+      GITLAB_TRIGGER_TOKEN: ""
     volumes:
       - airflow_data:/opt/airflow
       - ./dags:/opt/airflow/dags
@@ -77,8 +83,3 @@ services:
 
 volumes:
   airflow_data:
-
-networks:
-  default:
-    external:
-      name: teaminno3_default

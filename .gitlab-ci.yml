@@ -79,8 +79,6 @@ verify_and_rollback:
   script:
     - sleep 60
     - echo "Verification placeholder. Add Prometheus checks here."
-    # Пример rollback при плохих метриках:
-    # - kubectl --kubeconfig "$KUBECONFIG" rollout undo deployment/ml-app -n $KUBE_NAMESPACE
   only:
     variables:
       - $PROD_DEPLOY == "true"

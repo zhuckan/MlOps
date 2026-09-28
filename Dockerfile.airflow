@@ -1,19 +1,6 @@
 FROM apache/airflow:2.10.5-python3.11
 
-RUN pip install --no-cache-dir \
-    pandas \
-    numpy \
-    scipy \
-    minio \
-    evidently \
-    prometheus-client \
-    requests \
-    scikit-learn \
-    xgboost \
-    mlflow \
-    joblib \
-    feast \
-    pyarrow \
-    apache-airflow-providers-cncf-kubernetes
+COPY requirements-airflow.txt /tmp/requirements-airflow.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-airflow.txt
 
 RUN pip install --no-cache-dir --upgrade pyOpenSSL cryptography

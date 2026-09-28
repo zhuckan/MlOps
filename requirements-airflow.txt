@@ -1,0 +1,14 @@
+pandas
+numpy
+scipy
+minio
+evidently
+prometheus-client
+requests
+scikit-learn
+xgboost
+mlflow
+joblib
+feast
+pyarrow
+apache-airflow-providers-cncf-kubernetes

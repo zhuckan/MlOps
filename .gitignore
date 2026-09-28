@@ -26,3 +26,10 @@ volumes/
 *.log
 
 kubeconfig*.yaml
+
+venv/
+.venv/
+env/
+
+feature_repo/data/*.parquet
+feature_repo/data/*.db
