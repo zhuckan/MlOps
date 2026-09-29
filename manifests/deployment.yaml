@@ -25,7 +25,7 @@ spec:
       containers:
         - name: api
           image: __CI_REGISTRY_IMAGE__:__CI_COMMIT_SHORT_SHA__
-          imagePullPolicy: Always
+          imagePullPolicy: Never
           ports:
             - containerPort: 8000
           env:

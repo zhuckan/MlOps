@@ -6,6 +6,7 @@ import httpx
 import pandas as pd
 from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel
+from prometheus_client import Counter, Histogram
 from prometheus_fastapi_instrumentator import Instrumentator
 
 MODEL_PATH = os.getenv("MODEL_PATH", "./model.pkl")
@@ -26,6 +27,23 @@ instrumentator = Instrumentator(excluded_handlers=["/metrics"])
 instrumentator.instrument(app).expose(app)
 
 SHADOW_URL = os.getenv("SHADOW_URL", None)
+
+# --- Shadow comparison metrics ---
+SHADOW_REQUESTS = Counter(
+    "shadow_requests_total",
+    "Total shadow requests",
+    ["status"],
+)
+SHADOW_AGREEMENT = Counter(
+    "shadow_prediction_agreement_total",
+    "Agreement between champion and shadow predictions",
+    ["agree"],
+)
+SHADOW_PROB_DIFF = Histogram(
+    "shadow_prob_difference",
+    "Absolute difference between champion and shadow probabilities",
+    buckets=[0.001, 0.01, 0.05, 0.1, 0.2, 0.5, 1.0],
+)
 
 logger.info(f"Loading model from {MODEL_PATH}")
 model = joblib.load(MODEL_PATH)
@@ -97,18 +115,36 @@ async def predict(form: InputData, background_tasks: BackgroundTasks):
     y_pred = int(model.predict(df)[0])
 
     if SHADOW_URL:
-        background_tasks.add_task(mirror_to_shadow, form.dict())
+        background_tasks.add_task(
+            mirror_to_shadow, form.dict(), y_pred, float(y_proba)
+        )
 
     return {"pred": y_pred, "prob": float(y_proba)}
 
 
-async def mirror_to_shadow(payload: dict):
+async def mirror_to_shadow(payload: dict, champion_pred: int, champion_prob: float):
     try:
         async with httpx.AsyncClient() as client:
-            await client.post(
+            r = await client.post(
                 f"{SHADOW_URL}/predict",
                 json=payload,
-                timeout=1.0,
+                timeout=2.0,
+            )
+            r.raise_for_status()
+            shadow_data = r.json()
+            shadow_pred = int(shadow_data["pred"])
+            shadow_prob = float(shadow_data["prob"])
+
+            SHADOW_REQUESTS.labels(status="ok").inc()
+
+            agree = "true" if champion_pred == shadow_pred else "false"
+            SHADOW_AGREEMENT.labels(agree=agree).inc()
+            SHADOW_PROB_DIFF.observe(abs(champion_prob - shadow_prob))
+
+            logger.info(
+                f"shadow compare: champion=({champion_pred}, {champion_prob:.4f}) "
+                f"shadow=({shadow_pred}, {shadow_prob:.4f}) agree={agree}"
             )
     except Exception as e:
+        SHADOW_REQUESTS.labels(status="failed").inc()
         logger.warning(f"Shadow request failed: {e}")

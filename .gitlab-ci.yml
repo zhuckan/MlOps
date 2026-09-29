@@ -75,10 +75,20 @@ deploy_prod:
 
 verify_and_rollback:
   stage: verify_and_rollback
-  image: bitnami/kubectl:latest
+  image: python:3.11-slim
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends curl ca-certificates
+    - curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - chmod +x /usr/local/bin/kubectl
+    - pip install --no-cache-dir requests
   script:
-    - sleep 60
-    - echo "Verification placeholder. Add Prometheus checks here."
+    - kubectl --kubeconfig "$KUBECONFIG" -n monitoring port-forward svc/prometheus 9090:9090 &
+    - sleep 8
+    - export PROMETHEUS_URL="http://localhost:9090"
+    - export KUBE_NAMESPACE="ml-service"
+    - export APP_NAME="ml-app"
+    - export WARMUP_SECONDS="60"
+    - python scripts/verify_and_rollback.py
   only:
     variables:
       - $PROD_DEPLOY == "true"

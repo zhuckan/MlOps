@@ -9,7 +9,14 @@ services:
       - MLFLOW_ALLOW_HOST=*
     volumes:
       - ./mlruns:/mlruns
-    command: mlflow ui --backend-store-uri file:/mlruns --host 0.0.0.0 --allowed-hosts '*'
+    command: >
+      mlflow server
+      --backend-store-uri file:/mlruns
+      --artifacts-destination /mlruns
+      --serve-artifacts
+      --host 0.0.0.0
+      --port 5000
+      --allowed-hosts '*'
     restart: unless-stopped
 
   minio:

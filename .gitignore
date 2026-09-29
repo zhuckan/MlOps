@@ -33,3 +33,5 @@ env/
 
 feature_repo/data/*.parquet
 feature_repo/data/*.db
+
+.env

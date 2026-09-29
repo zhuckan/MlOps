@@ -54,7 +54,7 @@ def read_object(client, bucket, object_name):
 def read_baseline(client):
     pointer_bytes = read_object(client, BUCKET_TRAFFIC, POINTER_OBJECT)
     baseline_name = pointer_bytes.decode("utf-8").strip()
-    print(f"Baseline pointer → {baseline_name}")
+    print(f"Baseline pointer -> {baseline_name}")
 
     csv_bytes = read_object(client, BUCKET_TRAFFIC, baseline_name)
     df = pd.read_csv(io.BytesIO(csv_bytes))
@@ -156,16 +156,6 @@ def compute_data_drift_metrics(baseline_df, current_df):
 def compute_concept_drift_metrics(predictions_df, targets_df):
     metrics = {}
     drift_detected = False
-
-    print(f"[DEBUG] predictions_df shape: {predictions_df.shape}")
-    print(f"[DEBUG] predictions_df dtypes:\n{predictions_df.dtypes}")
-    if "transaction_id" in predictions_df.columns:
-        print(f"[DEBUG] predictions txn_id dtype: {predictions_df['transaction_id'].dtype}")
-        print(f"[DEBUG] predictions txn_id sample: {predictions_df['transaction_id'].head(3).tolist()}")
-    print(f"[DEBUG] targets_df shape: {targets_df.shape}")
-    if not targets_df.empty:
-        print(f"[DEBUG] targets txn_id dtype: {targets_df['transaction_id'].dtype}")
-        print(f"[DEBUG] targets txn_id sample: {targets_df['transaction_id'].head(3).tolist()}")
 
     if predictions_df.empty:
         return metrics, drift_detected
@@ -272,7 +262,7 @@ def _render_concept_drift_table(metrics):
     rows.append({
         "Metric": "error_rate",
         "Value": f"{err:.6f}",
-        "Threshold": f"≤ {CONCEPT_ERROR_RATE_HIGH}",
+        "Threshold": f"<= {CONCEPT_ERROR_RATE_HIGH}",
         "Drift": "YES" if err > CONCEPT_ERROR_RATE_HIGH else "no",
     })
     rows.append({
@@ -308,7 +298,7 @@ def generate_html_report(data_metrics, concept_metrics, drift_detected, baseline
  <strong>{status}</strong><br>
  Baseline: {baseline_name}<br>
  PSI threshold: {PSI_THRESHOLD}<br>
- KS α / Bonferroni: {KS_ALPHA} / {ks_threshold:.6f}<br>
+ KS alpha / Bonferroni: {KS_ALPHA} / {ks_threshold:.6f}<br>
  Error rate threshold: {CONCEPT_ERROR_RATE_HIGH}<br>
  Generated: {datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC
 </div>
@@ -348,7 +338,10 @@ def main():
     all_metrics = {**data_metrics, **concept_metrics}
     drift_detected = data_drift or concept_drift
 
-    push_metrics(all_metrics)
+    try:
+        push_metrics(all_metrics)
+    except Exception as e:
+        print(f"[warn] push_metrics failed: {e}")
 
     html_report = generate_html_report(data_metrics, concept_metrics, drift_detected, baseline_name)
     report_url = upload_report(client, html_report)
