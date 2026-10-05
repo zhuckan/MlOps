@@ -28,7 +28,6 @@ instrumentator.instrument(app).expose(app)
 
 SHADOW_URL = os.getenv("SHADOW_URL", None)
 
-# --- Shadow comparison metrics ---
 SHADOW_REQUESTS = Counter(
     "shadow_requests_total",
     "Total shadow requests",

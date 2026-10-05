@@ -1,4 +1,5 @@
 import io
+import json
 import os
 from datetime import datetime, timedelta
 
@@ -319,9 +320,21 @@ def upload_report(client, html_report):
     return f"http://{MINIO_ENDPOINT}/{BUCKET_REPORTS}/{report_name}"
 
 
+def _write_xcom_result(drift_detected, report_url):
+    xcom_path = "/airflow/xcom/return.json"
+    try:
+        with open(xcom_path, "w") as f:
+            json.dump({
+                "drift_detected": bool(drift_detected),
+                "report_url": report_url or "",
+            }, f)
+        print(f"[xcom] wrote result to {xcom_path}")
+    except (FileNotFoundError, PermissionError):
+        pass
+
+
 def main():
     client = get_minio_client()
-
     baseline_df, baseline_name = read_baseline(client)
     current_df = read_partitioned_window(client, CURRENT_PREFIX, CURRENT_WINDOW_HOURS)
     predictions_df = read_partitioned_window(client, PREDICTIONS_PREFIX, CURRENT_WINDOW_HOURS)
@@ -330,6 +343,7 @@ def main():
     if current_df.empty:
         print("DRIFT_DETECTED=False")
         print("REPORT_URL=none")
+        _write_xcom_result(False, "none")
         return
 
     data_metrics, data_drift = compute_data_drift_metrics(baseline_df, current_df)
@@ -348,6 +362,7 @@ def main():
 
     print(f"DRIFT_DETECTED={'True' if drift_detected else 'False'}")
     print(f"REPORT_URL={report_url}")
+    _write_xcom_result(drift_detected, report_url)
 
 
 if __name__ == "__main__":

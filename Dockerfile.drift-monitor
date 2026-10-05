@@ -1,0 +1,11 @@
+FROM python:3.9-slim
+
+WORKDIR /app
+
+COPY requirements-drift.txt .
+RUN pip install --no-cache-dir -r requirements-drift.txt
+
+COPY dags/scripts/drift_monitor.py /app/drift_monitor.py
+COPY feature_repo/data/targets.parquet /app/feature_repo/data/targets.parquet
+
+CMD ["python", "drift_monitor.py"]

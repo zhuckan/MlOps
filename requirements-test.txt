@@ -1,2 +1,6 @@
 fastapi
 pytest
+httpx
+pandas
+numpy
+scikit-learn

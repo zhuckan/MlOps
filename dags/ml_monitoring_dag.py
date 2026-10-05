@@ -1,6 +1,5 @@
 import json
 import os
-import subprocess
 from datetime import datetime, timedelta
 from io import BytesIO
 
@@ -25,15 +24,24 @@ default_args = {
 GITLAB_URL = os.getenv("GITLAB_URL", "http://host.docker.internal:8088")
 GITLAB_PROJECT_ID = os.getenv("GITLAB_PROJECT_ID", "1")
 GITLAB_TRIGGER_TOKEN = os.getenv("GITLAB_TRIGGER_TOKEN", "")
-MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI_AIRFLOW", "http://mlflow:5000")
-EXPERIMENT_NAME = "Creditcard_Model_Tuning_v2"
 
-MINIO_ENDPOINT = "minio:9000"
-MINIO_ACCESS_KEY = "minioadmin"
-MINIO_SECRET_KEY = "minioadmin"
-MINIO_BUCKET = "traffic-logs"
-BASELINE_POINTER = "baseline_current.txt"
-FEATURES_PARQUET = "/opt/airflow/feature_repo/data/features.parquet"
+MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI_AIRFLOW", "http://mlflow:5000")
+EXPERIMENT_NAME = os.getenv("EXPERIMENT_NAME", "Creditcard_Model_Tuning_v2")
+
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "host.docker.internal:9050")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+MINIO_BUCKET = os.getenv("MINIO_BUCKET", "traffic-logs")
+BASELINE_POINTER = os.getenv("BASELINE_POINTER", "baseline_current.txt")
+
+FEATURES_PARQUET = os.getenv(
+    "FEATURES_PARQUET",
+    "/opt/airflow/feature_repo/data/features.parquet",
+)
+
+FEAST_REPO_PATH = os.getenv("FEAST_REPO_PATH", "/opt/airflow/feature_repo")
+CURRENT_WINDOW_HOURS = os.getenv("CURRENT_WINDOW_HOURS", "168")
+RETRAIN_JOB_VERSION = os.getenv("RETRAIN_JOB_VERSION", "v7")
 
 
 def _send_telegram(message):
@@ -53,42 +61,24 @@ def _send_telegram(message):
         print(f"[telegram] Failed: {e}")
 
 
-def run_drift_monitor(**context):
-    result = subprocess.run(
-        ['python3', '/opt/airflow/dags/scripts/drift_monitor.py'],
-        capture_output=True,
-        text=True,
-        env={
-            **os.environ,
-            'MINIO_ENDPOINT': MINIO_ENDPOINT,
-            'PUSHGATEWAY_URL': 'http://host.docker.internal:9091',
-            'FEAST_REPO_PATH': '/opt/airflow/feature_repo',
-            'CURRENT_WINDOW_HOURS': '168',
-        },
-    )
-    drift_detected = False
-    report_url = None
-    for line in result.stdout.splitlines():
-        if line.startswith('DRIFT_DETECTED='):
-            drift_detected = line.split('=')[1] == 'True'
-        elif line.startswith('REPORT_URL='):
-            report_url = line.split('=')[1]
-    context['ti'].xcom_push(key='drift_detected', value=drift_detected)
-    context['ti'].xcom_push(key='report_url', value=report_url)
-    return result.stdout
+def _get_drift_result(context):
+    result = context['ti'].xcom_pull(task_ids='drift_check') or {}
+    if not isinstance(result, dict):
+        return {"drift_detected": False, "report_url": ""}
+    return result
 
 
 def send_alert(**context):
-    drift = context['ti'].xcom_pull(task_ids='drift_check', key='drift_detected')
-    if not drift:
+    result = _get_drift_result(context)
+    if not result.get("drift_detected"):
         return
-    report_url = context['ti'].xcom_pull(task_ids='drift_check', key='report_url')
+    report_url = result.get("report_url", "")
     _send_telegram(f"Data Drift detected! Report: {report_url}")
 
 
 def should_continue(**context):
-    drift = context['ti'].xcom_pull(task_ids='drift_check', key='drift_detected')
-    return 'send_alert' if drift else 'no_drift'
+    result = _get_drift_result(context)
+    return 'send_alert' if result.get("drift_detected") else 'no_drift'
 
 
 def no_drift():
@@ -253,9 +243,30 @@ with DAG(
     tags=['ml', 'monitoring'],
 ) as dag:
 
-    drift_check = PythonOperator(
+    drift_check = KubernetesPodOperator(
         task_id='drift_check',
-        python_callable=run_drift_monitor,
+        name='drift-monitor',
+        namespace='ml-service',
+        image='drift-monitor:v2',
+        image_pull_policy='Never',
+        cmds=['python', 'drift_monitor.py'],
+        env_vars={
+            'MINIO_ENDPOINT': 'minio.ml-service.svc.cluster.local:9000',
+            'MINIO_ACCESS_KEY': MINIO_ACCESS_KEY,
+            'MINIO_SECRET_KEY': MINIO_SECRET_KEY,
+            'PUSHGATEWAY_URL': 'http://pushgateway.monitoring.svc.cluster.local:9091',
+            'FEAST_REPO_PATH': '/app/feature_repo',
+            'CURRENT_WINDOW_HOURS': str(CURRENT_WINDOW_HOURS),
+        },
+        container_resources=k8s.V1ResourceRequirements(
+            requests={"memory": "512Mi", "cpu": "250m"},
+            limits={"memory": "2Gi", "cpu": "1"},
+        ),
+        do_xcom_push=True,
+        get_logs=True,
+        is_delete_operator_pod=True,
+        in_cluster=False,
+        config_file="/opt/airflow/kubeconfig-ci.yaml",
     )
 
     branch = BranchPythonOperator(
@@ -278,7 +289,7 @@ with DAG(
     retrain_model = KubernetesPodOperator(
         task_id='retrain_model',
         namespace='ml-service',
-        image='retrain-job:v7',
+        image=f'retrain-job:{RETRAIN_JOB_VERSION}',
         image_pull_policy='Never',
         name='retrain-job',
         cmds=["python", "retrain.py"],

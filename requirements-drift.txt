@@ -1,0 +1,6 @@
+pandas
+numpy
+scipy
+pyarrow
+minio
+prometheus-client
