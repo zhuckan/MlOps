@@ -24,9 +24,10 @@ End-to-end MLOps pipeline that monitors a production fraud detection model, dete
 
 ### Safe Rollout
 - Human-in-the-loop approval via Airflow Variables with full audit trail
-- Shadow deployment: new model receives mirrored traffic without affecting clients
+- **Istio Canary Deployment:** traffic shifting (90/10 → 50/50 → 100/0) via VirtualService weights
+- **Shadow Deployment:** new model receives mirrored traffic without affecting clients
 - Prediction agreement + probability difference metrics compared in Prometheus
-- Automated rollback via `kubectl rollout undo` on SLO violation (5xx rate, p95 latency, RPS)
+- Automated rollback via `kubectl rollout undo` or Istio traffic shift on SLO violation (5xx rate, p95 latency, RPS)
 
 ### Observability
 - Prometheus scrapes business metrics (RPS, latency, errors, shadow agreement)
@@ -61,6 +62,7 @@ End-to-end MLOps pipeline that monitors a production fraud detection model, dete
 │   └── scripts/             # Drift monitor
 ├── feature_repo/            # Feast definitions
 ├── manifests/               # Kubernetes manifests
+│   ├── istio/               # Gateway, VirtualService (Canary/Shadow), DestinationRule
 │   └── monitoring/          # Prometheus, Grafana, Pushgateway
 ├── scripts/                 # verify_and_rollback
 ├── retrain.py               # Training pipeline
