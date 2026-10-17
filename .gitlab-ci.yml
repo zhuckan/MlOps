@@ -2,25 +2,48 @@ stages:
   - lint
   - test
   - build
-  - build_shadow
-  - deploy_shadow
-  - deploy_prod
-  - verify_and_rollback
+  - deploy-shadow
+  - promote-canary
+  - verify
 
 variables:
-  IMAGE_TAG: "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
-  SHADOW_IMAGE_TAG: "$CI_REGISTRY_IMAGE:shadow-$CI_COMMIT_SHORT_SHA"
   KUBE_NAMESPACE: "ml-service"
   MLFLOW_TRACKING_URI: "http://host.docker.internal:5001"
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  KANIKO_IMAGE: "gcr.io/kaniko-project/executor:v1.19.0-debug"
+  KUBECTL_IMAGE: "bitnami/kubectl:1.29"
 
 cache:
   paths:
     - .cache/pip
 
+.kaniko: &kaniko
+  image:
+    name: $KANIKO_IMAGE
+    entrypoint: [""]
+  before_script:
+    - mkdir -p /kaniko/.docker
+    - |
+      echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"gitlab-ci-token\",\"password\":\"$CI_JOB_TOKEN\"}}}" \
+        > /kaniko/.docker/config.json
+
+.kubectl: &kubectl
+  image: $KUBECTL_IMAGE
+  before_script:
+    - test -n "$KUBECONFIG" || (echo "KUBECONFIG is not set" && exit 1)
+
+.apply_base: &apply_base
+  - kubectl apply -f manifests/namespace.yaml
+  - kubectl apply -f manifests/rbac.yaml
+  - kubectl apply -f manifests/quota.yaml
+  - kubectl apply -f manifests/limitrange.yaml
+  - kubectl apply -f manifests/service.yaml
+  - kubectl apply -f manifests/istio/gateway.yaml
+  - kubectl apply -f manifests/istio/destination-rule.yaml
+
 lint:
   stage: lint
-  image: python:3.9-slim
+  image: python:3.11-slim
   script:
     - pip install --no-cache-dir ruff
     - ruff check app.py retrain.py simulate_traffic.py save_baseline.py switch_baseline.py dags/ scripts/
@@ -30,7 +53,7 @@ lint:
 
 test:
   stage: test
-  image: python:3.9-slim
+  image: python:3.11-slim
   script:
     - pip install --no-cache-dir -r requirements-test.txt
     - pytest tests/ -v --tb=short
@@ -39,59 +62,69 @@ test:
     - if: $CI_COMMIT_BRANCH == "main"
 
 build:
+  <<: *kaniko
   stage: build
-  image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [""]
-  before_script:
-    - mkdir -p /kaniko/.docker
-    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"gitlab-ci-token\",\"password\":\"$CI_JOB_TOKEN\"}}}" > /kaniko/.docker/config.json
   script:
-    - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/Dockerfile --destination $IMAGE_TAG --insecure --skip-tls-verify
-  only:
-    - main
+    - /kaniko/executor
+        --context $CI_PROJECT_DIR
+        --dockerfile $CI_PROJECT_DIR/Dockerfile
+        --destination $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
+        --insecure --skip-tls-verify
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
 
-build_shadow:
-  stage: build_shadow
-  image: docker:latest
-  services:
-    - docker:dind
-  before_script:
-    - apk add --no-cache python3 py3-pip
-    - pip3 install --break-system-packages mlflow pandas scikit-learn xgboost joblib
-    - python3 download_model_for_shadow.py
+build-canary:
+  <<: *kaniko
+  stage: build
   script:
-    - docker build -t $SHADOW_IMAGE_TAG -t $CI_REGISTRY_IMAGE:prod-candidate .
-    - docker push $SHADOW_IMAGE_TAG
-    - docker push $CI_REGISTRY_IMAGE:prod-candidate
-  only:
-    variables:
-      - $SHADOW_DEPLOY == "true"
+    - /kaniko/executor
+        --context $CI_PROJECT_DIR
+        --dockerfile $CI_PROJECT_DIR/Dockerfile.shadow
+        --destination $CI_REGISTRY_IMAGE:canary-$CI_COMMIT_SHORT_SHA
+        --build-arg MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI
+        --insecure --skip-tls-verify
+  rules:
+    - if: $SHADOW_DEPLOY == "true" || $PROD_DEPLOY == "true"
 
-deploy_shadow:
-  stage: deploy_shadow
-  image: bitnami/kubectl:latest
+deploy-shadow:
+  <<: *kubectl
+  stage: deploy-shadow
   script:
-    - sed "s|__CI_REGISTRY_IMAGE__|$CI_REGISTRY_IMAGE|g; s|__CI_COMMIT_SHORT_SHA__|$CI_COMMIT_SHORT_SHA|g" manifests/shadow-deployment.yaml | kubectl --kubeconfig "$KUBECONFIG" apply -f -
-    - export SHADOW_URL="http://ml-app-shadow:8000"
-    - sed "s|__CI_REGISTRY_IMAGE__|$CI_REGISTRY_IMAGE|g; s|__CI_COMMIT_SHORT_SHA__|$CI_COMMIT_SHORT_SHA|g; s|__SHADOW_URL__|$SHADOW_URL|g" manifests/deployment.yaml | kubectl --kubeconfig "$KUBECONFIG" apply -f -
-  only:
-    variables:
-      - $SHADOW_DEPLOY == "true"
+    - *apply_base
+    - sed "s|__CI_REGISTRY_IMAGE__|$CI_REGISTRY_IMAGE|g; s|__CI_COMMIT_SHORT_SHA__|$CI_COMMIT_SHORT_SHA|g"
+        manifests/deployment.yaml | kubectl apply -f -
+    - sed "s|__CANARY_IMAGE__|$CI_REGISTRY_IMAGE:canary-$CI_COMMIT_SHORT_SHA|g"
+        manifests/canary-deployment.yaml | kubectl apply -f -
+    - kubectl apply -f manifests/istio/virtual-service-shadow.yaml
+    - kubectl -n $KUBE_NAMESPACE rollout status deployment/ml-app --timeout=180s
+    - kubectl -n $KUBE_NAMESPACE rollout status deployment/ml-app-canary --timeout=180s
+  environment:
+    name: shadow
+  rules:
+    - if: $SHADOW_DEPLOY == "true"
 
-deploy_prod:
-  stage: deploy_prod
-  image: bitnami/kubectl:latest
+deploy-canary:
+  <<: *kubectl
+  stage: promote-canary
   script:
-    - export PROD_IMAGE="$CI_REGISTRY_IMAGE:prod-candidate"
-    - sed "s|__CI_REGISTRY_IMAGE__|$CI_REGISTRY_IMAGE|g; s|__CI_COMMIT_SHORT_SHA__|$CI_COMMIT_SHORT_SHA|g; s|__SHADOW_URL__||g" manifests/deployment.yaml | kubectl --kubeconfig "$KUBECONFIG" apply -f -
-    - kubectl --kubeconfig "$KUBECONFIG" delete deployment ml-app-shadow -n $KUBE_NAMESPACE || true
-  only:
-    variables:
-      - $PROD_DEPLOY == "true"
+    - *apply_base
+    - sed "s|__CI_REGISTRY_IMAGE__|$CI_REGISTRY_IMAGE|g; s|__CI_COMMIT_SHORT_SHA__|$CI_COMMIT_SHORT_SHA|g"
+        manifests/deployment.yaml | kubectl apply -f -
+    - sed "s|__CANARY_IMAGE__|$CI_REGISTRY_IMAGE:canary-$CI_COMMIT_SHORT_SHA|g"
+        manifests/canary-deployment.yaml | kubectl apply -f -
+    - sed "s|__STABLE_WEIGHT__|90|g; s|__CANARY_WEIGHT__|10|g"
+        manifests/istio/virtual-service-canary.yaml | kubectl apply -f -
+    - kubectl -n $KUBE_NAMESPACE rollout status deployment/ml-app-canary --timeout=180s
+  environment:
+    name: production
+    action: start
+  rules:
+    - if: $PROD_DEPLOY == "true"
+      when: manual
+      allow_failure: false
 
-verify_and_rollback:
-  stage: verify_and_rollback
+verify-canary:
+  stage: verify
   image: python:3.11-slim
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends curl ca-certificates
@@ -101,12 +134,44 @@ verify_and_rollback:
   script:
     - kubectl --kubeconfig "$KUBECONFIG" -n monitoring port-forward svc/prometheus 9090:9090 &
     - sleep 8
-    - export PROMETHEUS_URL="http://localhost:9090"
-    - export KUBE_NAMESPACE="ml-service"
-    - export APP_NAME="ml-app"
-    - export WARMUP_SECONDS="60"
+    - export PROMETHEUS_URL=http://localhost:9090
+    - export ROLLBACK_MODE=canary
     - python scripts/verify_and_rollback.py
-  only:
-    variables:
-      - $PROD_DEPLOY == "true"
-  when: on_success
+  needs: ["deploy-canary"]
+  rules:
+    - if: $PROD_DEPLOY == "true"
+
+promote-canary-50:
+  <<: *kubectl
+  stage: promote-canary
+  script:
+    - sed "s|__STABLE_WEIGHT__|50|g; s|__CANARY_WEIGHT__|50|g"
+        manifests/istio/virtual-service-canary.yaml | kubectl apply -f -
+  needs: ["verify-canary"]
+  rules:
+    - if: $PROD_DEPLOY == "true"
+      when: manual
+      allow_failure: false
+
+verify-canary-50:
+  extends: verify-canary
+  needs: ["promote-canary-50"]
+
+promote-canary-100:
+  <<: *kubectl
+  stage: promote-canary
+  script:
+    - kubectl -n $KUBE_NAMESPACE set image deployment/ml-app
+        api=$CI_REGISTRY_IMAGE:canary-$CI_COMMIT_SHORT_SHA
+    - kubectl -n $KUBE_NAMESPACE rollout status deployment/ml-app --timeout=180s
+    - sed "s|__STABLE_WEIGHT__|100|g; s|__CANARY_WEIGHT__|0|g"
+        manifests/istio/virtual-service-canary.yaml | kubectl apply -f -
+    - kubectl -n $KUBE_NAMESPACE delete deployment ml-app-canary --ignore-not-found
+  needs: ["verify-canary-50"]
+  environment:
+    name: production
+    action: stop
+  rules:
+    - if: $PROD_DEPLOY == "true"
+      when: manual
+      allow_failure: false

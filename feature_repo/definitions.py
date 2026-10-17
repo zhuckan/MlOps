@@ -1,12 +1,16 @@
 import os
 from datetime import timedelta
 from feast import Entity, FeatureView, Field, FileSource
-from feast.types import Float32, Int64
+from feast.types import Float32, Int64, ValueType
 
 
 REPO_DIR = os.path.dirname(os.path.abspath(__file__))
 
-transaction = Entity(name="transaction_id", join_keys=["transaction_id"])
+transaction = Entity(
+    name="transaction_id",
+    join_keys=["transaction_id"],
+    value_type=ValueType.INT64,
+)
 
 features_source = FileSource(
     name="creditcard_features_source",

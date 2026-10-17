@@ -145,7 +145,6 @@ def main():
         else:
             train_df = df[df["event_timestamp"] < cutoff].copy()
 
-        # Defensive checks
         if len(train_df) == 0 or len(holdout_df) == 0:
             raise ValueError(
                 f"Empty split: train={len(train_df)}, holdout={len(holdout_df)}"
@@ -182,7 +181,11 @@ def main():
         mlflow.log_metric("test_auprc", pr_auc)
         mlflow.set_tag("dataset_version", HOLDOUT_VERSION)
         mlflow.set_tag("holdout_cutoff", str(cutoff))
-        mlflow.sklearn.log_model(pipeline, "model")
+        mlflow.sklearn.log_model(
+            pipeline,
+            "model",
+            registered_model_name="creditcard_fraud_model",
+        )
 
         champion_runs = mlflow.search_runs(
             experiment_ids=[run.info.experiment_id],

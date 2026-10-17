@@ -22,12 +22,14 @@ services:
       AIRFLOW__CORE__EXECUTOR: SequentialExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/airflow.db
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-      KUBECONFIG: /Users/sophie/.kube/config
+      KUBECONFIG: /opt/airflow/kubeconfig-ci.yaml
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
       TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID}"
       GITLAB_URL: "http://host.docker.internal:8088"
       GITLAB_PROJECT_ID: "1"
       GITLAB_TRIGGER_TOKEN: "${GITLAB_TRIGGER_TOKEN}"
+      MLFLOW_TRACKING_URI_AIRFLOW: "http://host.docker.internal:5001"
+      MINIO_ENDPOINT: "host.docker.internal:9050"
     volumes:
       - airflow_data:/opt/airflow
       - ./dags:/opt/airflow/dags
@@ -59,12 +61,14 @@ services:
       AIRFLOW__CORE__EXECUTOR: SequentialExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/airflow.db
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-      KUBECONFIG: /Users/sophie/.kube/config
+      KUBECONFIG: /opt/airflow/kubeconfig-ci.yaml
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
       TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID}"
       GITLAB_URL: "http://host.docker.internal:8088"
       GITLAB_PROJECT_ID: "1"
       GITLAB_TRIGGER_TOKEN: "${GITLAB_TRIGGER_TOKEN}"
+      MLFLOW_TRACKING_URI_AIRFLOW: "http://host.docker.internal:5001"
+      MINIO_ENDPOINT: "host.docker.internal:9050"
     volumes:
       - airflow_data:/opt/airflow
       - ./dags:/opt/airflow/dags

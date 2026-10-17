@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-app-canary
+  namespace: ml-service
+  labels:
+    app: ml-app
+    version: canary
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ml-app
+      version: canary
+  template:
+    metadata:
+      labels:
+        app: ml-app
+        version: canary
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: ml-app
+      imagePullSecrets:
+        - name: gitlab-registry
+      containers:
+        - name: api
+          image: __CANARY_IMAGE__
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          resources:
+            requests: { cpu: "200m", memory: "256Mi" }
+            limits:   { cpu: "500m", memory: "512Mi" }
+          livenessProbe:
+            httpGet: { path: /status, port: 8000 }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /status, port: 8000 }
+            initialDelaySeconds: 5
+            periodSeconds: 5

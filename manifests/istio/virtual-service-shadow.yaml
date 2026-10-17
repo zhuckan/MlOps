@@ -1,0 +1,24 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: ml-app
+  namespace: ml-service
+spec:
+  hosts:
+    - "creditcard.local"
+    - ml-app
+  gateways:
+    - ml-app-gateway
+    - mesh
+  http:
+    - route:
+        - destination:
+            host: ml-app
+            subset: stable
+          weight: 100
+      mirror:
+        host: ml-app
+        subset: canary
+      mirrorPercentage:
+        value: 100.0
+      timeout: 3s

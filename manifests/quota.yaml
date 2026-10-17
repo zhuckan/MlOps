@@ -5,7 +5,7 @@ metadata:
   namespace: ml-service
 spec:
   hard:
-    requests.cpu: "2"
-    requests.memory: "4Gi"
-    limits.cpu: "4"
-    limits.memory: "8Gi"
+    requests.cpu: "4"
+    requests.memory: "8Gi"
+    limits.cpu: "10"
+    limits.memory: "16Gi"

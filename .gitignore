@@ -1,5 +1,4 @@
 creditcard.csv
-*.dvc
 .dvc/cache
 .dvc/tmp
 .dvc/plots
@@ -24,6 +23,7 @@ __pycache__/
 volumes/
 
 *.log
+logs/
 
 kubeconfig*.yaml
 
@@ -35,3 +35,4 @@ feature_repo/data/*.parquet
 feature_repo/data/*.db
 
 .env
+model.pkl

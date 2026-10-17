@@ -5,15 +5,18 @@ metadata:
   namespace: ml-service
   labels:
     app: ml-app
+    version: stable
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: ml-app
+      version: stable
   template:
     metadata:
       labels:
         app: ml-app
+        version: stable
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8000"
@@ -25,12 +28,14 @@ spec:
       containers:
         - name: api
           image: __CI_REGISTRY_IMAGE__:__CI_COMMIT_SHORT_SHA__
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
           env:
-            - name: SHADOW_URL
-              value: "__SHADOW_URL__"
+            - name: MLFLOW_TRACKING_URI
+              value: "http://host.minikube.internal:5001"
+            - name: MODEL_URI
+              value: "models:/creditcard_fraud_model@champion"
           resources:
             requests:
               cpu: "200m"
@@ -39,14 +44,10 @@ spec:
               cpu: "500m"
               memory: "512Mi"
           livenessProbe:
-            httpGet:
-              path: /status
-              port: 8000
+            httpGet: { path: /status, port: 8000 }
             initialDelaySeconds: 30
             periodSeconds: 10
           readinessProbe:
-            httpGet:
-              path: /status
-              port: 8000
+            httpGet: { path: /status, port: 8000 }
             initialDelaySeconds: 5
             periodSeconds: 5

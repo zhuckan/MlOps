@@ -11,6 +11,7 @@ from airflow.models import Variable
 from airflow.operators.python import BranchPythonOperator, PythonOperator
 from airflow.providers.cncf.kubernetes.operators.pod import KubernetesPodOperator
 from airflow.sensors.python import PythonSensor
+from airflow.sensors.time_delta import TimeDeltaSensor
 from kubernetes.client import models as k8s
 from minio import Minio
 
@@ -78,7 +79,9 @@ def send_alert(**context):
 
 def should_continue(**context):
     result = _get_drift_result(context)
-    return 'send_alert' if result.get("drift_detected") else 'no_drift'
+    if result.get("drift_detected"):
+        return ['send_alert', 'retrain_model']
+    return 'no_drift'
 
 
 def no_drift():
@@ -120,7 +123,7 @@ def approval_sensor(**context):
     mlflow.set_tracking_uri(MLFLOW_URI)
     exp = mlflow.get_experiment_by_name(EXPERIMENT_NAME)
     if exp is None:
-        print("[approval] Experiment not found, waiting...")
+        print("[approval] Experiment not found, waiting")
         return False
 
     runs = mlflow.search_runs(
@@ -130,7 +133,7 @@ def approval_sensor(**context):
         max_results=1,
     )
     if runs.empty:
-        print("[approval] No Ready_for_staging model, waiting...")
+        print("[approval] No Ready_for_staging model, waiting")
         return False
 
     run_id = runs.iloc[0]["run_id"]
@@ -155,12 +158,35 @@ def promote_to_production(**context):
 
     mlflow.set_tracking_uri(MLFLOW_URI)
     client = mlflow.tracking.MlflowClient()
-    client.set_tag(run_id, "model_status", "Production")
+
+    model_versions = client.search_model_versions(
+        f"run_id='{run_id}' AND name='creditcard_fraud_model'"
+    )
+    if not model_versions:
+        raise Exception(f"[promote] Model version not found for run {run_id}")
+    model_version = model_versions[0].version
+
+    client.set_registered_model_alias(
+        name="creditcard_fraud_model",
+        alias="champion",
+        version=model_version,
+    )
+
+    try:
+        client.delete_registered_model_alias(
+            name="creditcard_fraud_model",
+            alias="challenger",
+        )
+    except Exception:
+        pass
+
     client.set_tag(run_id, "approved_at", str(pd.Timestamp.utcnow()))
+    client.set_tag(run_id, "model_status", "Production")
     Variable.delete(f"ml_approval_{run_id}")
 
     context['ti'].xcom_push(key='promoted_run_id', value=run_id)
-    print(f"[promote] run {run_id} -> Production")
+    context['ti'].xcom_push(key='promoted_version', value=model_version)
+    print(f"[promote] run {run_id} → champion (model v{model_version})")
 
 
 def refresh_baseline(**context):
@@ -214,25 +240,31 @@ def notify_approved(**context):
         f"Модель ОДОБРЕНА\n"
         f"Run ID: {run_id}\n"
         f"Статус: Production\n"
-        f"Запускаю деплой через GitLab..."
+        f"Запускаю деплой через GitLab"
     )
 
 
-def trigger_gitlab_pipeline(**context):
+def trigger_gitlab_pipeline(variables: dict):
     if not GITLAB_TRIGGER_TOKEN:
-        print("GITLAB_TRIGGER_TOKEN not set. Skipping trigger.")
+        print("[gitlab] trigger token not set, skipping")
         return
     url = f"{GITLAB_URL}/api/v4/projects/{GITLAB_PROJECT_ID}/trigger/pipeline"
-    payload = {
-        "token": GITLAB_TRIGGER_TOKEN,
-        "ref": "main",
-        "variables[PROD_DEPLOY]": "true",
-    }
+    payload = {"token": GITLAB_TRIGGER_TOKEN, "ref": "main"}
+    for k, v in variables.items():
+        payload[f"variables[{k}]"] = v
     try:
         r = requests.post(url, data=payload, timeout=30)
-        print(f"GitLab trigger response: {r.status_code}, {r.text[:300]}")
+        print(f"[gitlab] {r.status_code}: {r.text[:300]}")
     except Exception as e:
-        print(f"Failed to trigger GitLab pipeline: {e}")
+        print(f"[gitlab] trigger failed: {e}")
+
+
+def trigger_shadow_deploy(**context):
+    trigger_gitlab_pipeline({"SHADOW_DEPLOY": "true"})
+
+
+def trigger_prod_deploy(**context):
+    trigger_gitlab_pipeline({"PROD_DEPLOY": "true"})
 
 
 with DAG(
@@ -314,6 +346,18 @@ with DAG(
         provide_context=True,
     )
 
+    trigger_shadow = PythonOperator(
+        task_id='trigger_shadow_deploy',
+        python_callable=trigger_shadow_deploy,
+        provide_context=True,
+    )
+
+    wait_shadow = TimeDeltaSensor(
+        task_id='wait_shadow_observation',
+        delta=timedelta(minutes=30),
+        mode='reschedule',
+    )
+
     wait_approval = PythonSensor(
         task_id='wait_for_approval',
         python_callable=approval_sensor,
@@ -341,16 +385,15 @@ with DAG(
     )
 
     trigger_deploy = PythonOperator(
-        task_id='trigger_deploy',
-        python_callable=trigger_gitlab_pipeline,
+        task_id='trigger_prod_deploy',
+        python_callable=trigger_prod_deploy,
         provide_context=True,
     )
 
     drift_check >> branch
     branch >> no_drift_task
     branch >> alert
-    alert >> retrain_model
-    retrain_model >> notify_ready_task
-    notify_ready_task >> wait_approval
-    wait_approval >> promote_model
-    promote_model >> refresh_baseline_task >> notify_ok >> trigger_deploy
+    branch >> retrain_model
+
+    retrain_model >> notify_ready_task >> trigger_shadow >> wait_shadow >> wait_approval
+    wait_approval >> promote_model >> refresh_baseline_task >> notify_ok >> trigger_deploy
