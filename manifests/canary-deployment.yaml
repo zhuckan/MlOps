@@ -23,8 +23,6 @@ spec:
         prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: ml-app
-      imagePullSecrets:
-        - name: gitlab-registry
       containers:
         - name: api
           image: __CANARY_IMAGE__

@@ -23,8 +23,6 @@ spec:
         prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: ml-app
-      imagePullSecrets:
-        - name: gitlab-registry
       containers:
         - name: api
           image: __CI_REGISTRY_IMAGE__:__CI_COMMIT_SHORT_SHA__
