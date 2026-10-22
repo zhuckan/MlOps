@@ -3,12 +3,14 @@ stages:
   - test
   - build
   - deploy-shadow
-  - promote-canary
-  - verify
+  - deploy-canary-10
+  - verify-canary-10
+  - promote-canary-50
+  - verify-canary-50
+  - promote-canary-100
 
 variables:
   KUBE_NAMESPACE: "ml-service"
-  MLFLOW_TRACKING_URI: "http://host.docker.internal:5001"
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
   KANIKO_IMAGE: "gcr.io/kaniko-project/executor:v1.19.0-debug"
   KUBECTL_IMAGE: "bitnami/kubectl:1.29"
@@ -84,7 +86,7 @@ build-canary:
         --build-arg MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI
         --insecure --skip-tls-verify
   rules:
-    - if: $SHADOW_DEPLOY == "true" || $PROD_DEPLOY == "true"
+    - if: $CI_COMMIT_BRANCH == "main"
 
 deploy-shadow:
   <<: *kubectl
@@ -101,11 +103,11 @@ deploy-shadow:
   environment:
     name: shadow
   rules:
-    - if: $SHADOW_DEPLOY == "true"
+    - if: $CI_COMMIT_BRANCH == "main"
 
 deploy-canary:
   <<: *kubectl
-  stage: promote-canary
+  stage: deploy-canary-10
   script:
     - *apply_base
     - sed "s|__CI_REGISTRY_IMAGE__|$CI_REGISTRY_IMAGE|g; s|__CI_COMMIT_SHORT_SHA__|$CI_COMMIT_SHORT_SHA|g"
@@ -119,12 +121,12 @@ deploy-canary:
     name: production
     action: start
   rules:
-    - if: $PROD_DEPLOY == "true"
+    - if: $CI_COMMIT_BRANCH == "main"
       when: manual
       allow_failure: false
 
 verify-canary:
-  stage: verify
+  stage: verify-canary-10
   image: python:3.11-slim
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends curl ca-certificates
@@ -139,39 +141,36 @@ verify-canary:
     - python scripts/verify_and_rollback.py
   needs: ["deploy-canary"]
   rules:
-    - if: $PROD_DEPLOY == "true"
+    - if: $CI_COMMIT_BRANCH == "main"
 
 promote-canary-50:
   <<: *kubectl
-  stage: promote-canary
+  stage: promote-canary-50
   script:
     - sed "s|__STABLE_WEIGHT__|50|g; s|__CANARY_WEIGHT__|50|g"
         manifests/istio/virtual-service-canary.yaml | kubectl apply -f -
   needs: ["verify-canary"]
   rules:
-    - if: $PROD_DEPLOY == "true"
+    - if: $CI_COMMIT_BRANCH == "main"
       when: manual
       allow_failure: false
 
 verify-canary-50:
   extends: verify-canary
+  stage: verify-canary-50
   needs: ["promote-canary-50"]
 
 promote-canary-100:
   <<: *kubectl
-  stage: promote-canary
+  stage: promote-canary-100
   script:
-    - kubectl -n $KUBE_NAMESPACE set image deployment/ml-app
-        api=$CI_REGISTRY_IMAGE:canary-$CI_COMMIT_SHORT_SHA
+    - kubectl -n $KUBE_NAMESPACE set image deployment/ml-app api=$CI_REGISTRY_IMAGE:canary-$CI_COMMIT_SHORT_SHA
     - kubectl -n $KUBE_NAMESPACE rollout status deployment/ml-app --timeout=180s
     - sed "s|__STABLE_WEIGHT__|100|g; s|__CANARY_WEIGHT__|0|g"
         manifests/istio/virtual-service-canary.yaml | kubectl apply -f -
     - kubectl -n $KUBE_NAMESPACE delete deployment ml-app-canary --ignore-not-found
   needs: ["verify-canary-50"]
-  environment:
-    name: production
-    action: stop
   rules:
-    - if: $PROD_DEPLOY == "true"
+    - if: $CI_COMMIT_BRANCH == "main"
       when: manual
       allow_failure: false
