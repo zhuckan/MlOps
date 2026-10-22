@@ -14,6 +14,8 @@ variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
   KANIKO_IMAGE: "gcr.io/kaniko-project/executor:v1.19.0-debug"
   KUBECTL_IMAGE: "bitnami/kubectl:1.29"
+  PUSH_REGISTRY: "host.docker.internal:5000/ml-app"
+  PULL_REGISTRY: "host.minikube.internal:5000/ml-app"
 
 cache:
   paths:
@@ -23,11 +25,6 @@ cache:
   image:
     name: $KANIKO_IMAGE
     entrypoint: [""]
-  before_script:
-    - mkdir -p /kaniko/.docker
-    - |
-      echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"gitlab-ci-token\",\"password\":\"$CI_JOB_TOKEN\"}}}" \
-        > /kaniko/.docker/config.json
 
 .kubectl: &kubectl
   image: $KUBECTL_IMAGE
@@ -49,9 +46,6 @@ lint:
   script:
     - pip install --no-cache-dir ruff
     - ruff check app.py retrain.py simulate_traffic.py save_baseline.py switch_baseline.py dags/ scripts/
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == "main"
 
 test:
   stage: test
@@ -61,9 +55,6 @@ test:
   script:
     - pip install --no-cache-dir -r requirements-test.txt
     - python -m pytest tests/ -v --tb=short
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == "main"
 
 build:
   <<: *kaniko
@@ -72,10 +63,8 @@ build:
     - /kaniko/executor
         --context $CI_PROJECT_DIR
         --dockerfile $CI_PROJECT_DIR/Dockerfile
-        --destination $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
+        --destination $PUSH_REGISTRY:$CI_COMMIT_SHORT_SHA
         --insecure --skip-tls-verify
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
 
 build-canary:
   <<: *kaniko
@@ -84,37 +73,33 @@ build-canary:
     - /kaniko/executor
         --context $CI_PROJECT_DIR
         --dockerfile $CI_PROJECT_DIR/Dockerfile.shadow
-        --destination $CI_REGISTRY_IMAGE:canary-$CI_COMMIT_SHORT_SHA
+        --destination $PUSH_REGISTRY:canary-$CI_COMMIT_SHORT_SHA
         --build-arg MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI
         --insecure --skip-tls-verify
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
 
 deploy-shadow:
   <<: *kubectl
   stage: deploy-shadow
   script:
     - *apply_base
-    - sed "s|__CI_REGISTRY_IMAGE__|$CI_REGISTRY_IMAGE|g; s|__CI_COMMIT_SHORT_SHA__|$CI_COMMIT_SHORT_SHA|g"
+    - sed "s|__CI_REGISTRY_IMAGE__|$PULL_REGISTRY|g; s|__CI_COMMIT_SHORT_SHA__|$CI_COMMIT_SHORT_SHA|g"
         manifests/deployment.yaml | kubectl apply -f -
-    - sed "s|__CANARY_IMAGE__|$CI_REGISTRY_IMAGE:canary-$CI_COMMIT_SHORT_SHA|g"
+    - sed "s|__CANARY_IMAGE__|$PULL_REGISTRY:canary-$CI_COMMIT_SHORT_SHA|g"
         manifests/canary-deployment.yaml | kubectl apply -f -
     - kubectl apply -f manifests/istio/virtual-service-shadow.yaml
     - kubectl -n $KUBE_NAMESPACE rollout status deployment/ml-app --timeout=180s
     - kubectl -n $KUBE_NAMESPACE rollout status deployment/ml-app-canary --timeout=180s
   environment:
     name: shadow
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
 
 deploy-canary:
   <<: *kubectl
   stage: deploy-canary-10
   script:
     - *apply_base
-    - sed "s|__CI_REGISTRY_IMAGE__|$CI_REGISTRY_IMAGE|g; s|__CI_COMMIT_SHORT_SHA__|$CI_COMMIT_SHORT_SHA|g"
+    - sed "s|__CI_REGISTRY_IMAGE__|$PULL_REGISTRY|g; s|__CI_COMMIT_SHORT_SHA__|$CI_COMMIT_SHORT_SHA|g"
         manifests/deployment.yaml | kubectl apply -f -
-    - sed "s|__CANARY_IMAGE__|$CI_REGISTRY_IMAGE:canary-$CI_COMMIT_SHORT_SHA|g"
+    - sed "s|__CANARY_IMAGE__|$PULL_REGISTRY:canary-$CI_COMMIT_SHORT_SHA|g"
         manifests/canary-deployment.yaml | kubectl apply -f -
     - sed "s|__STABLE_WEIGHT__|90|g; s|__CANARY_WEIGHT__|10|g"
         manifests/istio/virtual-service-canary.yaml | kubectl apply -f -
@@ -122,10 +107,8 @@ deploy-canary:
   environment:
     name: production
     action: start
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
-      allow_failure: false
+  when: manual
+  allow_failure: false
 
 verify-canary:
   stage: verify-canary-10
@@ -142,8 +125,6 @@ verify-canary:
     - export ROLLBACK_MODE=canary
     - python scripts/verify_and_rollback.py
   needs: ["deploy-canary"]
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
 
 promote-canary-50:
   <<: *kubectl
@@ -152,10 +133,8 @@ promote-canary-50:
     - sed "s|__STABLE_WEIGHT__|50|g; s|__CANARY_WEIGHT__|50|g"
         manifests/istio/virtual-service-canary.yaml | kubectl apply -f -
   needs: ["verify-canary"]
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
-      allow_failure: false
+  when: manual
+  allow_failure: false
 
 verify-canary-50:
   extends: verify-canary
@@ -166,13 +145,11 @@ promote-canary-100:
   <<: *kubectl
   stage: promote-canary-100
   script:
-    - kubectl -n $KUBE_NAMESPACE set image deployment/ml-app api=$CI_REGISTRY_IMAGE:canary-$CI_COMMIT_SHORT_SHA
+    - kubectl -n $KUBE_NAMESPACE set image deployment/ml-app api=$PULL_REGISTRY:canary-$CI_COMMIT_SHORT_SHA
     - kubectl -n $KUBE_NAMESPACE rollout status deployment/ml-app --timeout=180s
     - sed "s|__STABLE_WEIGHT__|100|g; s|__CANARY_WEIGHT__|0|g"
         manifests/istio/virtual-service-canary.yaml | kubectl apply -f -
     - kubectl -n $KUBE_NAMESPACE delete deployment ml-app-canary --ignore-not-found
   needs: ["verify-canary-50"]
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
-      allow_failure: false
+  when: manual
+  allow_failure: false
