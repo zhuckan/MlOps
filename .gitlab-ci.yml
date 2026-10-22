@@ -83,8 +83,8 @@ deploy-shadow:
     - sed "s|__CANARY_IMAGE__|$PULL_REGISTRY:canary-$CI_COMMIT_SHORT_SHA|g"
         manifests/canary-deployment.yaml | kubectl apply -f -
     - kubectl apply -f manifests/istio/virtual-service-shadow.yaml
-    - kubectl -n $KUBE_NAMESPACE rollout status deployment/ml-app --timeout=180s
-    - kubectl -n $KUBE_NAMESPACE rollout status deployment/ml-app-canary --timeout=180s
+    - kubectl -n $KUBE_NAMESPACE rollout status deployment/ml-app --timeout=600s
+    - kubectl -n $KUBE_NAMESPACE rollout status deployment/ml-app-canary --timeout=600s
   environment:
     name: shadow
 
@@ -99,7 +99,7 @@ deploy-canary:
         manifests/canary-deployment.yaml | kubectl apply -f -
     - sed "s|__STABLE_WEIGHT__|90|g; s|__CANARY_WEIGHT__|10|g"
         manifests/istio/virtual-service-canary.yaml | kubectl apply -f -
-    - kubectl -n $KUBE_NAMESPACE rollout status deployment/ml-app-canary --timeout=180s
+    - kubectl -n $KUBE_NAMESPACE rollout status deployment/ml-app-canary --timeout=600s
   environment:
     name: production
     action: start
@@ -142,7 +142,7 @@ promote-canary-100:
   stage: promote-canary-100
   script:
     - kubectl -n $KUBE_NAMESPACE set image deployment/ml-app api=$PULL_REGISTRY:canary-$CI_COMMIT_SHORT_SHA
-    - kubectl -n $KUBE_NAMESPACE rollout status deployment/ml-app --timeout=180s
+    - kubectl -n $KUBE_NAMESPACE rollout status deployment/ml-app --timeout=600s
     - sed "s|__STABLE_WEIGHT__|100|g; s|__CANARY_WEIGHT__|0|g"
         manifests/istio/virtual-service-canary.yaml | kubectl apply -f -
     - kubectl -n $KUBE_NAMESPACE delete deployment ml-app-canary --ignore-not-found
