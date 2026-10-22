@@ -14,8 +14,8 @@ variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
   KANIKO_IMAGE: "gcr.io/kaniko-project/executor:v1.19.0-debug"
   KUBECTL_IMAGE: "bitnami/kubectl:1.29"
-  PUSH_REGISTRY: "host.docker.internal:5000/ml-app"
-  PULL_REGISTRY: "host.minikube.internal:5000/ml-app"
+  PUSH_REGISTRY: "host.docker.internal:5005/ml-app"
+  PULL_REGISTRY: "host.minikube.internal:5005/ml-app"
 
 cache:
   paths:
