@@ -1,8 +1,8 @@
 import os
 from datetime import timedelta
+
 from feast import Entity, FeatureView, Field, FileSource
 from feast.types import Float32, Int64, ValueType
-
 
 REPO_DIR = os.path.dirname(os.path.abspath(__file__))
 

@@ -1,17 +1,16 @@
-import os
 import json
+import os
 
-import pandas as pd
 import mlflow
-import mlflow.sklearn
 import mlflow.artifacts
-from sklearn.metrics import roc_auc_score, average_precision_score
+import mlflow.sklearn
+import pandas as pd
+from feast import FeatureStore
+from sklearn.compose import ColumnTransformer
+from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.compose import ColumnTransformer
 from xgboost import XGBClassifier
-from feast import FeatureStore
-
 
 MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
 FEAST_REPO_PATH = os.getenv("FEAST_REPO_PATH", "/app/feature_repo")

@@ -5,10 +5,9 @@ from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
-from scipy.stats import ks_2samp
 from minio import Minio
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
-
+from scipy.stats import ks_2samp
 
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")

@@ -1,13 +1,13 @@
-import os
 import logging
-import joblib
+import os
 from datetime import datetime, timezone
 
+import joblib
 import pandas as pd
 from fastapi import FastAPI
-from pydantic import BaseModel
 from prometheus_client import Counter
 from prometheus_fastapi_instrumentator import Instrumentator
+from pydantic import BaseModel
 
 MODEL_PATH = os.getenv("MODEL_PATH", "./model.pkl")
 SERVICE_NAME = os.getenv("SERVICE_NAME", "ml-app")

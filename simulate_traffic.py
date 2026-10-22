@@ -1,7 +1,7 @@
-import os
-import time
-import random
 import argparse
+import os
+import random
+import time
 from datetime import datetime
 from io import BytesIO
 
@@ -9,7 +9,6 @@ import numpy as np
 import pandas as pd
 import requests
 from minio import Minio
-
 
 API_URL = os.getenv("API_URL", "http://creditcard.local/predict")
 CSV_PATH = "creditcard.csv"

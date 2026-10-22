@@ -1,15 +1,17 @@
-import pandas as pd
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+
 import mlflow
 import mlflow.sklearn
-from dataclasses import dataclass
-from abc import ABC, abstractmethod
+import pandas as pd
+from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import average_precision_score, roc_auc_score
+from sklearn.model_selection import GridSearchCV, StratifiedKFold, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.compose import ColumnTransformer
-from sklearn.model_selection import GridSearchCV, StratifiedKFold, train_test_split
-from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBClassifier
-from sklearn.metrics import roc_auc_score, average_precision_score
+
 
 @dataclass
 class Config:

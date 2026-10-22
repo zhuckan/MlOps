@@ -1,10 +1,10 @@
-import pandas as pd
+import os
+from datetime import datetime
+
 import numpy as np
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
-from datetime import datetime
-import os
-
 
 df = pd.read_csv("creditcard.csv")
 df.drop_duplicates(inplace=True)

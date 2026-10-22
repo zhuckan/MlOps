@@ -1,7 +1,8 @@
 import os
+import subprocess
 import sys
 import time
-import subprocess
+
 import requests
 
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090")

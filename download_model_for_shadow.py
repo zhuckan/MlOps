@@ -1,7 +1,8 @@
+import os
+
+import joblib
 import mlflow
 import mlflow.sklearn
-import joblib
-import os
 
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://host.docker.internal:5001")
 EXPERIMENT_NAME = "Creditcard_Model_Tuning_v2"

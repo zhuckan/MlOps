@@ -1,12 +1,11 @@
-import os
-import json
 import argparse
+import json
+import os
 from datetime import datetime
 from io import BytesIO
 
 import pandas as pd
 from minio import Minio
-
 
 CSV_PATH = "creditcard.csv"
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
