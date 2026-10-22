@@ -119,6 +119,19 @@ def build_pipeline():
         ('clf', XGBClassifier(random_state=42, eval_metric='logloss')),
     ])
 
+
+def temporal_split(df, holdout_fraction=0.2):
+    if len(df) < 2:
+        raise ValueError("Not enough data to split")
+    if df["Class"].nunique() < 2:
+        raise ValueError("Only one class present in dataset")
+    df = df.sort_values("event_timestamp").reset_index(drop=True)
+    split_idx = int(len(df) * (1 - holdout_fraction))
+    train_df = df.iloc[:split_idx].copy()
+    holdout_df = df.iloc[split_idx:].copy()
+    return train_df, holdout_df
+
+
 def main():
     store = FeatureStore(repo_path=FEAST_REPO_PATH)
     df = load_features_and_targets(store)

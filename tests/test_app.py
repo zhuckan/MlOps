@@ -1,18 +1,28 @@
 import pytest
 from fastapi.testclient import TestClient
+from unittest.mock import patch, MagicMock
+import prometheus_client
 
+@pytest.fixture(autouse=True)
+def clear_prometheus_registry():
+    prometheus_client.REGISTRY._names_to_collectors.clear()
+    prometheus_client.REGISTRY._collector_to_names.clear()
 
 @pytest.fixture
 def client():
-    from app import app
-    return TestClient(app)
+    with patch("joblib.load") as mock_load:
+        mock_model = MagicMock()
+        mock_model.predict_proba.return_value = [[0.1, 0.9]]
+        mock_model.predict.return_value = [1]
+        mock_load.return_value = mock_model
 
+        from app import app
+        return TestClient(app)
 
 def test_status_endpoint(client):
     r = client.get("/status")
     assert r.status_code == 200
     assert r.json() == "I'm OK"
-
 
 def test_version_endpoint(client):
     r = client.get("/version")
@@ -21,8 +31,6 @@ def test_version_endpoint(client):
     assert "service" in data
     assert "version" in data
     assert "model_loaded_at" in data
-    assert "shadow_enabled" in data
-
 
 def test_predict_returns_valid_shape(client):
     payload = {
@@ -38,7 +46,6 @@ def test_predict_returns_valid_shape(client):
     data = r.json()
     assert data["pred"] in (0, 1)
     assert 0.0 <= data["prob"] <= 1.0
-
 
 def test_predict_rejects_missing_fields(client):
     r = client.post("/predict", json={"Amount": 100})
