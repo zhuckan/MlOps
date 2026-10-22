@@ -32,10 +32,6 @@ cache:
     - test -n "$KUBECONFIG" || (echo "KUBECONFIG is not set" && exit 1)
 
 .apply_base: &apply_base
-  - kubectl apply -f manifests/namespace.yaml
-  - kubectl apply -f manifests/rbac.yaml
-  - kubectl apply -f manifests/quota.yaml
-  - kubectl apply -f manifests/limitrange.yaml
   - kubectl apply -f manifests/service.yaml
   - kubectl apply -f manifests/istio/gateway.yaml
   - kubectl apply -f manifests/istio/destination-rule.yaml
