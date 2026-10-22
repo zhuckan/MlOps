@@ -13,7 +13,7 @@ variables:
   KUBE_NAMESPACE: "ml-service"
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
   KANIKO_IMAGE: "gcr.io/kaniko-project/executor:v1.19.0-debug"
-  KUBECTL_IMAGE: "registry.k8s.io/kubectl:v1.29.4"
+  KUBECTL_IMAGE: "alpine/k8s:1.29.4"
   PUSH_REGISTRY: "host.docker.internal:5005/ml-app"
   PULL_REGISTRY: "host.minikube.internal:5005/ml-app"
 
