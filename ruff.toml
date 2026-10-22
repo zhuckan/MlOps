@@ -2,7 +2,7 @@ line-length = 120
 
 [lint]
 ignore = [
-    "UP017",  
+    "UP017",
     "DTZ003",
     "BLE001",
     "TRY002",

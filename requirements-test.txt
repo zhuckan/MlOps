@@ -1,6 +1,3 @@
-fastapi
+-r requirements.txt
 pytest
 httpx
-pandas
-numpy
-scikit-learn
