@@ -10,7 +10,6 @@ stages:
   - promote-canary-100
 
 variables:
-  CI_SERVER_URL: "http://100.72.228.121:8929"
   KUBE_NAMESPACE: "ml-service"
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
   KANIKO_IMAGE: "gcr.io/kaniko-project/executor:v1.19.0-debug"
