@@ -40,7 +40,9 @@ def check_metrics():
         if v is not None and v > MAX_5XX_RATE:
             reasons.append(f"5xx {v:.4f} > {MAX_5XX_RATE}")
     except Exception as e:
-        print(f"[verify] WARN 5xx: {e}"); values["5xx_rate"] = None
+        print(f"[verify] WARN 5xx: {e}")
+        values["5xx_rate"] = None
+        reasons.append(f"Prometheus unreachable: {e}")
 
     q_p95 = (f'histogram_quantile(0.95, sum(rate('
              f'http_request_duration_seconds_bucket{{kubernetes_namespace="{ns}"}}'
@@ -50,7 +52,9 @@ def check_metrics():
         if v is not None and v > MAX_P95_LATENCY:
             reasons.append(f"p95 {v:.3f}s > {MAX_P95_LATENCY}s")
     except Exception as e:
-        print(f"[verify] WARN p95: {e}"); values["p95"] = None
+        print(f"[verify] WARN p95: {e}")
+        values["p95"] = None
+        reasons.append(f"Prometheus unreachable: {e}")
 
     q_rps = f'sum(rate(http_requests_total{{kubernetes_namespace="{ns}"}}[{WINDOW}]))'
     try:
@@ -58,7 +62,9 @@ def check_metrics():
         if v is not None and v < MIN_RPS:
             reasons.append(f"rps {v:.4f} < {MIN_RPS}")
     except Exception as e:
-        print(f"[verify] WARN rps: {e}"); values["rps"] = None
+        print(f"[verify] WARN rps: {e}")
+        values["rps"] = None
+        reasons.append(f"Prometheus unreachable: {e}")
 
     return (len(reasons) == 0, reasons, values)
 

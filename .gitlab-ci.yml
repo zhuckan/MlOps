@@ -111,7 +111,7 @@ verify-canary:
   image: python:3.11-slim
   before_script:
     - apt-get update && apt-get install -y --no-install-recommends curl ca-certificates
-    - curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v1.29.0/bin/linux/arm64/kubectl"
     - chmod +x /usr/local/bin/kubectl
     - pip install --no-cache-dir requests
   script:
